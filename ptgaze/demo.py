@@ -11,8 +11,12 @@ from .common import Face, FacePartsName, Visualizer
 from .gaze_estimator import GazeEstimator
 from .utils import get_3d_face_model
 
+import time
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+scale = 0.4
 
 
 class Demo:
@@ -31,7 +35,8 @@ class Demo:
 
         self.stop = False
         self.show_bbox = self.config.demo.show_bbox
-        self.show_head_pose = self.config.demo.show_head_pose
+        # self.show_head_pose = self.config.demo.show_head_pose
+        self.show_head_pose = True
         self.show_landmarks = self.config.demo.show_landmarks
         self.show_normalized_image = self.config.demo.show_normalized_image
         self.show_template_model = self.config.demo.show_template_model
@@ -62,6 +67,8 @@ class Demo:
 
     def _run_on_video(self) -> None:
         while True:
+            # start_timer = time.perf_counter()
+            start_fps = time.perf_counter()
             if self.config.demo.display_on_screen:
                 self._wait_key()
                 if self.stop:
@@ -70,10 +77,13 @@ class Demo:
             ok, frame = self.cap.read()
             if not ok:
                 break
+            frame = cv2.resize(frame, (int(frame.shape[1] * scale), int(frame.shape[0] * scale)))
             self._process_image(frame)
 
             if self.config.demo.display_on_screen:
                 cv2.imshow('frame', self.visualizer.image)
+            # logging.info(f"Frame time: {time.perf_counter() - start_timer}")
+            logging.info(f"fps: {1.0 / (time.perf_counter() - start_fps)}")
         self.cap.release()
         if self.writer:
             self.writer.release()
@@ -85,9 +95,9 @@ class Demo:
 
         self.visualizer.set_image(image.copy())
         faces = self.gaze_estimator.detect_faces(undistorted)
-        for face in faces:
+        for idx, face in enumerate(faces):
             self.gaze_estimator.estimate_gaze(undistorted, face)
-            self._draw_face_bbox(face)
+            self._draw_face_bbox(face, idx)
             self._draw_head_pose(face)
             self._draw_landmarks(face)
             self._draw_face_template_model(face)
@@ -108,8 +118,10 @@ class Demo:
             cap = cv2.VideoCapture(self.config.demo.video_path)
         else:
             raise ValueError
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.gaze_estimator.camera.width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.gaze_estimator.camera.height)
+        # cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.gaze_estimator.camera.width)
+        # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.gaze_estimator.camera.height)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(self.gaze_estimator.camera.width*0.4) )
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.gaze_estimator.camera.height*0.4))
         return cap
 
     def _create_output_dir(self) -> Optional[pathlib.Path]:
@@ -144,9 +156,12 @@ class Demo:
         else:
             raise ValueError
         output_path = self.output_dir / output_name
+        # writer = cv2.VideoWriter(output_path.as_posix(), fourcc, 30,
+        #                          (self.gaze_estimator.camera.width,
+        #                           self.gaze_estimator.camera.height))
         writer = cv2.VideoWriter(output_path.as_posix(), fourcc, 30,
-                                 (self.gaze_estimator.camera.width,
-                                  self.gaze_estimator.camera.height))
+                                 (int(self.gaze_estimator.camera.width*scale),
+                                  int(self.gaze_estimator.camera.height*scale)))
         if writer is None:
             raise RuntimeError
         return writer
@@ -169,10 +184,13 @@ class Demo:
             return False
         return True
 
-    def _draw_face_bbox(self, face: Face) -> None:
+    def _draw_face_bbox(self, face: Face, face_idx: int) -> None:
         if not self.show_bbox:
             return
-        self.visualizer.draw_bbox(face.bbox)
+        # self.visualizer.draw_bbox(face.bbox, face.name.value)
+        self.visualizer.draw_bbox(face.bbox, face_idx, face.distance)
+        bbox = np.round(face.bbox).astype(np.int).tolist()
+        logger.info(f'[bbox] top-left [{bbox[0][0]}, {bbox[0][1]}] - bottom-right [{bbox[1][0]}, {bbox[1][1]}]')
 
     def _draw_head_pose(self, face: Face) -> None:
         if not self.show_head_pose:

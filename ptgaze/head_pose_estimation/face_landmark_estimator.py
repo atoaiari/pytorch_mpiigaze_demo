@@ -25,8 +25,7 @@ class LandmarkEstimator:
                 flip_input=False,
                 device=config.device)
         elif self.mode == 'face_alignment_sfd':
-            self.detector = face_alignment.detection.sfd.sfd_detector.SFDDetector(
-                device=config.device)
+            self.detector = face_alignment.detection.sfd.sfd_detector.SFDDetector(device=config.device, filter_threshold=0.99)
             self.predictor = face_alignment.FaceAlignment(
                 face_alignment.LandmarksType._2D,
                 flip_input=False,
