@@ -28,9 +28,10 @@ demo:
   output_dir: null
   output_file_extension: avi
   head_pose_axis_length: 0.05
-  gaze_visualization_length: 0.05
+  gaze_visualization_length: 0.15
   show_bbox: true
-  show_head_pose: false
+  show_head_pose: true
   show_landmarks: false
   show_normalized_image: false
   show_template_model: false
+  frame_scale: 0.6

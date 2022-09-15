@@ -33,8 +33,7 @@ class Demo:
 
         self.stop = False
         self.show_bbox = self.config.demo.show_bbox
-        # self.show_head_pose = self.config.demo.show_head_pose
-        self.show_head_pose = True
+        self.show_head_pose = self.config.demo.show_head_pose
         self.show_landmarks = self.config.demo.show_landmarks
         self.show_normalized_image = self.config.demo.show_normalized_image
         self.show_template_model = self.config.demo.show_template_model
