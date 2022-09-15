@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation
 from .camera import Camera
 from .face import Face
 
-AXIS_COLORS = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
+AXIS_COLORS = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]   # B, G, R
 
 
 class Visualizer:
@@ -68,6 +68,28 @@ class Visualizer:
         pt0 = self._convert_pt(points2d[0])
         pt1 = self._convert_pt(points2d[1])
         cv2.line(self.image, pt0, pt1, color, lw, cv2.LINE_AA)
+    
+    def custom_draw_3d_line(self,
+                     face: Face,
+                     lenght: float,
+                     color: Tuple[int, int, int] = (255, 255, 0),
+                     lw=2) -> None:
+        point0 = face.center
+        gaze_vector = face.gaze_vector
+        # point1 = point0 + lenght * face.gaze_vector
+        point1 = point0 + lenght * gaze_vector
+        assert self.image is not None
+        assert point0.shape == point1.shape == (3, )
+        points3d = np.vstack([point0, point1])
+        points2d = self._camera.project_points(points3d)
+        pt0 = self._convert_pt(points2d[0])
+        pt1 = self._convert_pt(points2d[1])
+        cv2.line(self.image, pt0, pt1, color, lw, cv2.LINE_AA)
+        pitch, yaw = np.rad2deg(face.vector_to_angle(face.gaze_vector))
+        bbox = np.round(face.bbox).astype(np.int).tolist()
+        cv2.putText(self.image, f"yaw: {np.round(yaw, 2)}", (bbox[0][0], bbox[1][1] + 15), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.90, color, 1, cv2.LINE_AA)
+        point_on_screen = face.center - face.gaze_vector * face.center[2] / face.gaze_vector[2]
+        cv2.circle(self.image, (int(point_on_screen[0] * self.image.shape[1]), self.image.shape[0]//2), 3, color, cv2.FILLED)
 
     def draw_model_axes(self, face: Face, length: float, lw: int = 2) -> None:
         assert self.image is not None

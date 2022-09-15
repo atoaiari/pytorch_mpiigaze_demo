@@ -16,8 +16,6 @@ import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-scale = 0.4
-
 
 class Demo:
     QUIT_KEYS = {27, ord('q')}
@@ -65,9 +63,50 @@ class Demo:
             output_path = pathlib.Path(self.config.demo.output_dir) / name
             cv2.imwrite(output_path.as_posix(), self.visualizer.image)
 
+    def _iou(self, bbox1, bbox2):
+        """
+        Calculates the intersection-over-union of two bounding boxes.
+        Args:
+            bbox1 (numpy.array, list of floats): bounding box in format x1,y1,x2,y2.
+            bbox2 (numpy.array, list of floats): bounding box in format x1,y1,x2,y2.
+        Returns:
+            int: intersection-over-onion of bbox1, bbox2
+        """
+
+        bbox1 = [float(x) for x in bbox1]
+        bbox2 = [float(x) for x in bbox2]
+
+        (x0_1, y0_1, x1_1, y1_1) = bbox1
+        (x0_2, y0_2, x1_2, y1_2) = bbox2
+
+        # get the overlap rectangle
+        overlap_x0 = max(x0_1, x0_2)
+        overlap_y0 = max(y0_1, y0_2)
+        overlap_x1 = min(x1_1, x1_2)
+        overlap_y1 = min(y1_1, y1_2)
+
+        # check if there is an overlap
+        if overlap_x1 - overlap_x0 <= 0 or overlap_y1 - overlap_y0 <= 0:
+            return 0
+
+        # if yes, calculate the ratio of the overlap to each ROI size and the unified size
+        size_1 = (x1_1 - x0_1) * (y1_1 - y0_1)
+        size_2 = (x1_2 - x0_2) * (y1_2 - y0_2)
+        size_intersection = (overlap_x1 - overlap_x0) * (overlap_y1 - overlap_y0)
+        size_union = size_1 + size_2 - size_intersection
+
+        return size_intersection / size_union
+
     def _run_on_video(self) -> None:
+        tracks_active = []
+        tracks_finished = []
+        sigma_iou = 0.5
+        t_min = 2
+        t_start_min = 60
+        frame_num = 0
+        ids = 0
+
         while True:
-            # start_timer = time.perf_counter()
             start_fps = time.perf_counter()
             if self.config.demo.display_on_screen:
                 self._wait_key()
@@ -77,12 +116,60 @@ class Demo:
             ok, frame = self.cap.read()
             if not ok:
                 break
-            frame = cv2.resize(frame, (int(frame.shape[1] * scale), int(frame.shape[0] * scale)))
-            self._process_image(frame)
+            frame = cv2.resize(frame, (int(frame.shape[1] * self.config.demo.frame_scale), int(frame.shape[0] * self.config.demo.frame_scale)))
+            undistorted = cv2.undistort(frame, self.gaze_estimator.camera.camera_matrix,\
+                self.gaze_estimator.camera.dist_coefficients)
+            self.visualizer.set_image(frame.copy())
+            frame_num += 1
+
+            faces = self.gaze_estimator.detect_faces(undistorted)
+
+            updated_tracks = []
+            for track in tracks_active:
+                if len(faces) > 0:
+                    # get det with highest iou
+                    best_match = max(faces, key=lambda x: self._iou(track['bboxes'][-1], x.bbox.flatten()))
+                    if self._iou(track['bboxes'][-1], best_match.bbox.flatten()) >= sigma_iou:
+                        track['bboxes'].append(best_match.bbox.flatten())
+                        track['faces'].append(best_match)
+                        updated_tracks.append(track)
+
+                        # remove the best matching detection from detections
+                        del faces[faces.index(best_match)]
+
+                # if track was not updated
+                if len(updated_tracks) == 0 or track is not updated_tracks[-1]:
+                    # finish track when the conditions are met
+                    if len(track['bboxes']) >= t_min:
+                        tracks_finished.append(track)
+                        # TODO: when a track stops, upload data
+                        # upload attention data
+            
+            # create new tracks
+            new_tracks = []
+            for face in faces:
+                new_tracks.append({'bboxes': [face.bbox.flatten()], 'faces': [face], 'start_frame': frame_num, 'id': ids})
+                ids += 1
+            tracks_active = updated_tracks + new_tracks
+
+            for idx, track in enumerate(tracks_active):
+                if len(track['bboxes']) >= t_start_min:
+                    face = track['faces'][-1]
+                    self.gaze_estimator.estimate_gaze(undistorted, face)
+                    self._draw_face_bbox(face, track['id'])
+                    self._draw_head_pose(face)
+                    self._draw_landmarks(face)
+                    self._draw_face_template_model(face)
+                    self._draw_gaze_vector(face)
+                    self._display_normalized_image(face)
+    
+            if self.config.demo.use_camera:
+                self.visualizer.image = self.visualizer.image[:, ::-1]
+            if self.writer:
+                self.writer.write(self.visualizer.image)
 
             if self.config.demo.display_on_screen:
                 cv2.imshow('frame', self.visualizer.image)
-            # logging.info(f"Frame time: {time.perf_counter() - start_timer}")
             logging.info(f"fps: {1.0 / (time.perf_counter() - start_fps)}")
         self.cap.release()
         if self.writer:
@@ -120,8 +207,8 @@ class Demo:
             raise ValueError
         # cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.gaze_estimator.camera.width)
         # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.gaze_estimator.camera.height)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(self.gaze_estimator.camera.width*0.4) )
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.gaze_estimator.camera.height*0.4))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(self.gaze_estimator.camera.width*self.config.demo.frame_scale) )
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.gaze_estimator.camera.height*self.config.demo.frame_scale))
         return cap
 
     def _create_output_dir(self) -> Optional[pathlib.Path]:
@@ -160,8 +247,8 @@ class Demo:
         #                          (self.gaze_estimator.camera.width,
         #                           self.gaze_estimator.camera.height))
         writer = cv2.VideoWriter(output_path.as_posix(), fourcc, 30,
-                                 (int(self.gaze_estimator.camera.width*scale),
-                                  int(self.gaze_estimator.camera.height*scale)))
+                                 (int(self.gaze_estimator.camera.width),
+                                  int(self.gaze_estimator.camera.height)))
         if writer is None:
             raise RuntimeError
         return writer
@@ -188,7 +275,7 @@ class Demo:
         if not self.show_bbox:
             return
         # self.visualizer.draw_bbox(face.bbox, face.name.value)
-        self.visualizer.draw_bbox(face.bbox, face_idx, face.distance)
+        self.visualizer.draw_bbox(face.bbox, face_idx, face.distance * self.config.gaze_estimator.normalized_camera_distance)
         bbox = np.round(face.bbox).astype(np.int).tolist()
         logger.info(f'[bbox] top-left [{bbox[0][0]}, {bbox[0][1]}] - bottom-right [{bbox[1][0]}, {bbox[1][1]}]')
 
@@ -202,7 +289,7 @@ class Demo:
         euler_angles = face.head_pose_rot.as_euler('XYZ', degrees=True)
         pitch, yaw, roll = face.change_coordinate_system(euler_angles)
         logger.info(f'[head] pitch: {pitch:.2f}, yaw: {yaw:.2f}, '
-                    f'roll: {roll:.2f}, distance: {face.distance:.2f}')
+                    f'roll: {roll:.2f}, distance: {face.distance * self.config.gaze_estimator.normalized_camera_distance:.2f}')
 
     def _draw_landmarks(self, face: Face) -> None:
         if not self.show_landmarks:
@@ -246,8 +333,9 @@ class Demo:
                 logger.info(
                     f'[{key.name.lower()}] pitch: {pitch:.2f}, yaw: {yaw:.2f}')
         elif self.config.mode in ['MPIIFaceGaze', 'ETH-XGaze']:
-            self.visualizer.draw_3d_line(
-                face.center, face.center + length * face.gaze_vector)
+            # self.visualizer.draw_3d_line(
+            #     face.center, face.center + length * face.gaze_vector)
+            self.visualizer.custom_draw_3d_line(face, length)
             pitch, yaw = np.rad2deg(face.vector_to_angle(face.gaze_vector))
             logger.info(f'[face] pitch: {pitch:.2f}, yaw: {yaw:.2f}')
         else:

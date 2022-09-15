@@ -107,8 +107,8 @@ def generate_dummy_camera_params(config: DictConfig) -> None:
         cap = cv2.VideoCapture(path)
         if not cap.isOpened():
             raise RuntimeError(f'{config.demo.video_path} is not opened.')
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) * config.demo.frame_scale)
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) * config.demo.frame_scale)
         cap.release()
     else:
         raise ValueError
