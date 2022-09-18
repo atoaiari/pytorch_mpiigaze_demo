@@ -18,6 +18,7 @@ class FaceModel:
     CHIN_INDEX: int
     NOSE_INDEX: int
 
+
     def estimate_head_pose(self, face: Face, camera: Camera) -> None:
         """Estimate the head pose by fitting 3D template model."""
         # If the number of the template points is small, cv2.solvePnP
@@ -42,10 +43,12 @@ class FaceModel:
         face.reye.head_pose_rot = rot
         face.leye.head_pose_rot = rot
 
+
     def compute_3d_pose(self, face: Face) -> None:
         """Compute the transformed model."""
         rot = face.head_pose_rot.as_matrix()
         face.model3d = self.LANDMARKS @ rot.T + face.head_position
+
 
     def compute_face_eye_centers(self, face: Face, mode: str) -> None:
         """Compute the centers of the face and eyes.

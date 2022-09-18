@@ -38,6 +38,7 @@ class LandmarkEstimator:
         else:
             raise ValueError
 
+
     def detect_faces(self, image: np.ndarray) -> List[Face]:
         if self.mode == 'dlib':
             return self._detect_faces_dlib(image)
@@ -49,6 +50,7 @@ class LandmarkEstimator:
             return self._detect_faces_mediapipe(image)
         else:
             raise ValueError
+
 
     def _detect_faces_dlib(self, image: np.ndarray) -> List[Face]:
         bboxes = self.detector(image[:, :, ::-1], 0)
@@ -62,6 +64,7 @@ class LandmarkEstimator:
                             dtype=np.float)
             detected.append(Face(bbox, landmarks))
         return detected
+
 
     def _detect_faces_face_alignment_dlib(self,
                                           image: np.ndarray) -> List[Face]:
@@ -80,6 +83,7 @@ class LandmarkEstimator:
             detected.append(Face(bbox, landmarks))
         return detected
 
+
     def _detect_faces_face_alignment_sfd(self,
                                          image: np.ndarray) -> List[Face]:
         bboxes = self.detector.detect_from_image(image[:, :, ::-1].copy())
@@ -93,6 +97,7 @@ class LandmarkEstimator:
             bbox = np.array(bbox, dtype=np.float).reshape(2, 2)
             detected.append(Face(bbox, landmarks))
         return detected
+
 
     def _detect_faces_mediapipe(self, image: np.ndarray) -> List[Face]:
         h, w = image.shape[:2]

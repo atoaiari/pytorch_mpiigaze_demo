@@ -16,11 +16,13 @@ class HeadPoseNormalizer:
         self.normalized_camera = normalized_camera
         self.normalized_distance = normalized_distance
 
+
     def normalize(self, image: np.ndarray, eye_or_face: FaceParts) -> None:
         eye_or_face.normalizing_rot = self._compute_normalizing_rotation(
             eye_or_face.center, eye_or_face.head_pose_rot)
         self._normalize_image(image, eye_or_face)
         self._normalize_head_pose(eye_or_face)
+
 
     def _normalize_image(self, image: np.ndarray,
                          eye_or_face: FaceParts) -> None:
@@ -42,11 +44,13 @@ class HeadPoseNormalizer:
             normalized_image = cv2.equalizeHist(normalized_image)
         eye_or_face.normalized_image = normalized_image
 
+
     @staticmethod
     def _normalize_head_pose(eye_or_face: FaceParts) -> None:
         normalized_head_rot = eye_or_face.head_pose_rot * eye_or_face.normalizing_rot
         euler_angles2d = normalized_head_rot.as_euler('XYZ')[:2]
         eye_or_face.normalized_head_rot2d = euler_angles2d * np.array([1, -1])
+
 
     @staticmethod
     def _compute_normalizing_rotation(center: np.ndarray,
@@ -58,6 +62,7 @@ class HeadPoseNormalizer:
         y_axis = _normalize_vector(np.cross(z_axis, head_x_axis))
         x_axis = _normalize_vector(np.cross(y_axis, z_axis))
         return Rotation.from_matrix(np.vstack([x_axis, y_axis, z_axis]))
+
 
     def _get_scale_matrix(self, distance: float) -> np.ndarray:
         return np.array([

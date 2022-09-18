@@ -24,9 +24,11 @@ class FaceParts:
         self.normalized_gaze_vector: Optional[np.ndarray] = None
         self.gaze_vector: Optional[np.ndarray] = None
 
+
     @property
     def distance(self) -> float:
         return np.linalg.norm(self.center)
+
 
     def angle_to_vector(self) -> None:
         pitch, yaw = self.normalized_gaze_angles
@@ -36,6 +38,7 @@ class FaceParts:
             np.cos(pitch) * np.cos(yaw)
         ])
 
+
     def denormalize_gaze_vector(self) -> None:
         normalizing_rot = self.normalizing_rot.as_matrix()
         # Here gaze vector is a row vector, and rotation matrices are
@@ -43,6 +46,7 @@ class FaceParts:
         # the same as multiplying the inverse of the rotation matrix to the
         # column gaze vector from the left.
         self.gaze_vector = self.normalized_gaze_vector @ normalizing_rot
+
 
     @staticmethod
     def vector_to_angle(vector: np.ndarray) -> np.ndarray:

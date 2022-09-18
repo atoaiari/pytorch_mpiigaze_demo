@@ -72,6 +72,18 @@ def parse_args() -> argparse.Namespace:
         action='store_true',
         help='If specified, the video is not displayed on screen, and saved '
         'to the output directory.')
+    parser.add_argument(
+        '--shop-ids',
+        type=int,
+        nargs='+',
+        help='List with ids corresponding to objects inside the shop window, from right to left.'
+    )
+    parser.add_argument(
+        '--shop_width',
+        type=float,
+        help='Width of the shop window in meters.'
+    )
+
     parser.add_argument('--debug', action='store_true')
     return parser.parse_args()
 
@@ -116,6 +128,10 @@ def load_mode_config(args: argparse.Namespace) -> DictConfig:
         config.demo.display_on_screen = False
         if not config.demo.output_dir:
             config.demo.output_dir = 'outputs'
+    if args.shop_ids:
+        config.shop.ids = args.shop_ids
+    if args.shop_width:
+        config.shop.width = args.shop_width
 
     return config
 
@@ -130,8 +146,7 @@ def main():
     elif args.mode:
         config = load_mode_config(args)
     else:
-        raise ValueError(
-            'You need to specify one of \'--mode\' or \'--config\'.')
+        raise ValueError('You need to specify one of \'--mode\' or \'--config\'.')
     expanduser_all(config)
     if config.gaze_estimator.use_dummy_camera_params:
         generate_dummy_camera_params(config)

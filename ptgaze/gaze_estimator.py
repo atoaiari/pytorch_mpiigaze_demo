@@ -33,6 +33,7 @@ class GazeEstimator:
         self._gaze_estimation_model = self._load_model()
         self._transform = create_transform(config)
 
+
     def _load_model(self) -> torch.nn.Module:
         model = create_model(self._config)
         checkpoint = torch.load(self._config.gaze_estimator.checkpoint,
@@ -42,8 +43,10 @@ class GazeEstimator:
         model.eval()
         return model
 
+
     def detect_faces(self, image: np.ndarray) -> List[Face]:
         return self._landmark_estimator.detect_faces(image)
+
 
     def estimate_gaze(self, image: np.ndarray, face: Face) -> None:
         self._face_model3d.estimate_head_pose(face, self.camera)
@@ -63,6 +66,7 @@ class GazeEstimator:
             self._run_ethxgaze_model(face)
         else:
             raise ValueError
+
 
     @torch.no_grad()
     def _run_mpiigaze_model(self, face: Face) -> None:
@@ -96,6 +100,7 @@ class GazeEstimator:
             eye.angle_to_vector()
             eye.denormalize_gaze_vector()
 
+
     @torch.no_grad()
     def _run_mpiifacegaze_model(self, face: Face) -> None:
         image = self._transform(face.normalized_image).unsqueeze(0)
@@ -108,6 +113,7 @@ class GazeEstimator:
         face.normalized_gaze_angles = prediction[0]
         face.angle_to_vector()
         face.denormalize_gaze_vector()
+
 
     @torch.no_grad()
     def _run_ethxgaze_model(self, face: Face) -> None:

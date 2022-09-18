@@ -25,6 +25,7 @@ class Camera:
         self.dist_coefficients = np.array(
             data['distortion_coefficients']['data']).reshape(-1, 1)
 
+
     def project_points(self,
                        points3d: np.ndarray,
                        rvec: Optional[np.ndarray] = None,

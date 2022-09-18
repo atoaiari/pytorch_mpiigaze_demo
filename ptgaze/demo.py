@@ -1,17 +1,19 @@
 import datetime
 import logging
 import pathlib
-from typing import Optional
+from typing import Optional, Dict
 
 import cv2
 import numpy as np
 from omegaconf import DictConfig
 
-from .common import Face, FacePartsName, Visualizer
+from .common import Face, FacePartsName, Visualizer, Shop
 from .gaze_estimator import GazeEstimator
 from .utils import get_3d_face_model
 
 import time
+import itertools
+from collections import Counter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,6 +40,9 @@ class Demo:
         self.show_normalized_image = self.config.demo.show_normalized_image
         self.show_template_model = self.config.demo.show_template_model
 
+        self.shop = Shop(self.gaze_estimator.camera, self.config.shop.width, self.config.shop.ids)
+
+
     def run(self) -> None:
         if self.config.demo.use_camera or self.config.demo.video_path:
             self._run_on_video()
@@ -45,6 +50,7 @@ class Demo:
             self._run_on_image()
         else:
             raise ValueError
+
 
     def _run_on_image(self):
         image = cv2.imread(self.config.demo.image_path)
@@ -61,6 +67,7 @@ class Demo:
             name = pathlib.Path(self.config.demo.image_path).name
             output_path = pathlib.Path(self.config.demo.output_dir) / name
             cv2.imwrite(output_path.as_posix(), self.visualizer.image)
+
 
     def _iou(self, bbox1, bbox2):
         """
@@ -96,15 +103,22 @@ class Demo:
 
         return size_intersection / size_union
 
+
+    def _send_results(self, track: Dict) -> Dict:
+        occurencies = Counter(track['objects_of_interest'])
+        del occurencies[-1]
+        person_id = track["id"]     # TODO: replace with re-id module
+        return {'id': person_id, 'result': occurencies}     # TODO: send API message
+            
+
     def _run_on_video(self) -> None:
         tracks_active = []
         tracks_finished = []
         sigma_iou = 0.5
-        t_min = 2
-        t_start_min = 60
-        frame_num = 0
-        ids = 0
+        t_min = 60   # minimum number of frames to consider the track valid
+        tracks_progressive_id = itertools.count()
 
+        frame_num = 0
         while True:
             start_fps = time.perf_counter()
             if self.config.demo.display_on_screen:
@@ -115,13 +129,16 @@ class Demo:
             ok, frame = self.cap.read()
             if not ok:
                 break
-            frame = cv2.resize(frame, (int(frame.shape[1] * self.config.demo.frame_scale), int(frame.shape[0] * self.config.demo.frame_scale)))
+            frame = cv2.resize(frame,\
+                (int(frame.shape[1] * self.config.demo.frame_scale),\
+                int(frame.shape[0] * self.config.demo.frame_scale)))
             undistorted = cv2.undistort(frame, self.gaze_estimator.camera.camera_matrix,\
                 self.gaze_estimator.camera.dist_coefficients)
             self.visualizer.set_image(frame.copy())
-            frame_num += 1
 
             faces = self.gaze_estimator.detect_faces(undistorted)
+            for face in faces:
+                self.gaze_estimator.estimate_gaze(undistorted, face)
 
             updated_tracks = []
             for track in tracks_active:
@@ -131,30 +148,32 @@ class Demo:
                     if self._iou(track['bboxes'][-1], best_match.bbox.flatten()) >= sigma_iou:
                         track['bboxes'].append(best_match.bbox.flatten())
                         track['faces'].append(best_match)
+                        track['objects_of_interest'].append(self.shop.estimate_ooi(face))
                         updated_tracks.append(track)
 
                         # remove the best matching detection from detections
                         del faces[faces.index(best_match)]
 
-                # if track was not updated
+                # if track was not updated, finish it
                 if len(updated_tracks) == 0 or track is not updated_tracks[-1]:
-                    # finish track when the conditions are met
                     if len(track['bboxes']) >= t_min:
                         tracks_finished.append(track)
-                        # TODO: when a track stops, upload data
-                        # upload attention data
+                        self._send_results(track)
             
-            # create new tracks
+            # create new tracks if there are detections left
             new_tracks = []
             for face in faces:
-                new_tracks.append({'bboxes': [face.bbox.flatten()], 'faces': [face], 'start_frame': frame_num, 'id': ids})
-                ids += 1
+                new_tracks.append({'id': next(tracks_progressive_id),\
+                    'bboxes': [face.bbox.flatten()],\
+                    'faces': [face],\
+                    'start_frame': frame_num,\
+                    'objects_of_interest': [self.shop.estimate_ooi(face)]})
             tracks_active = updated_tracks + new_tracks
-
+            
+            # visualization
             for idx, track in enumerate(tracks_active):
-                if len(track['bboxes']) >= t_start_min:
+                if len(track['bboxes']) >= t_min:
                     face = track['faces'][-1]
-                    self.gaze_estimator.estimate_gaze(undistorted, face)
                     self._draw_face_bbox(face, track['id'])
                     self._draw_head_pose(face)
                     self._draw_landmarks(face)
@@ -166,13 +185,16 @@ class Demo:
                 self.visualizer.image = self.visualizer.image[:, ::-1]
             if self.writer:
                 self.writer.write(self.visualizer.image)
-
             if self.config.demo.display_on_screen:
                 cv2.imshow('frame', self.visualizer.image)
+            
             logging.info(f"fps: {1.0 / (time.perf_counter() - start_fps)}")
+            frame_num += 1
+
         self.cap.release()
         if self.writer:
             self.writer.release()
+
 
     def _process_image(self, image) -> None:
         undistorted = cv2.undistort(
@@ -195,6 +217,7 @@ class Demo:
         if self.writer:
             self.writer.write(self.visualizer.image)
 
+
     def _create_capture(self) -> Optional[cv2.VideoCapture]:
         if self.config.demo.image_path:
             return None
@@ -210,6 +233,7 @@ class Demo:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(self.gaze_estimator.camera.height*self.config.demo.frame_scale))
         return cap
 
+
     def _create_output_dir(self) -> Optional[pathlib.Path]:
         if not self.config.demo.output_dir:
             return
@@ -217,10 +241,12 @@ class Demo:
         output_dir.mkdir(exist_ok=True, parents=True)
         return output_dir
 
+
     @staticmethod
     def _create_timestamp() -> str:
         dt = datetime.datetime.now()
         return dt.strftime('%Y%m%d_%H%M%S')
+
 
     def _create_video_writer(self) -> Optional[cv2.VideoWriter]:
         if self.config.demo.image_path:
@@ -242,15 +268,13 @@ class Demo:
         else:
             raise ValueError
         output_path = self.output_dir / output_name
-        # writer = cv2.VideoWriter(output_path.as_posix(), fourcc, 30,
-        #                          (self.gaze_estimator.camera.width,
-        #                           self.gaze_estimator.camera.height))
         writer = cv2.VideoWriter(output_path.as_posix(), fourcc, 30,
                                  (int(self.gaze_estimator.camera.width),
                                   int(self.gaze_estimator.camera.height)))
         if writer is None:
             raise RuntimeError
         return writer
+
 
     def _wait_key(self) -> bool:
         key = cv2.waitKey(self.config.demo.wait_time) & 0xff
@@ -270,13 +294,14 @@ class Demo:
             return False
         return True
 
-    def _draw_face_bbox(self, face: Face, face_idx: int) -> None:
+
+    def _draw_face_bbox(self, face: Face, track_id: int) -> None:
         if not self.show_bbox:
             return
-        # self.visualizer.draw_bbox(face.bbox, face.name.value)
-        self.visualizer.draw_bbox(face.bbox, face_idx, face.distance * self.config.gaze_estimator.normalized_camera_distance)
+        self.visualizer.draw_bbox(face.bbox, track_id, face.distance * self.config.gaze_estimator.normalized_camera_distance)
         bbox = np.round(face.bbox).astype(np.int).tolist()
-        logger.info(f'[bbox] top-left [{bbox[0][0]}, {bbox[0][1]}] - bottom-right [{bbox[1][0]}, {bbox[1][1]}]')
+        logger.info(f'{track_id}: [bbox] top-left [{bbox[0][0]}, {bbox[0][1]}] - bottom-right [{bbox[1][0]}, {bbox[1][1]}]')
+
 
     def _draw_head_pose(self, face: Face) -> None:
         if not self.show_head_pose:
@@ -290,6 +315,7 @@ class Demo:
         logger.info(f'[head] pitch: {pitch:.2f}, yaw: {yaw:.2f}, '
                     f'roll: {roll:.2f}, distance: {face.distance * self.config.gaze_estimator.normalized_camera_distance:.2f}')
 
+
     def _draw_landmarks(self, face: Face) -> None:
         if not self.show_landmarks:
             return
@@ -297,12 +323,14 @@ class Demo:
                                     color=(0, 255, 255),
                                     size=1)
 
+
     def _draw_face_template_model(self, face: Face) -> None:
         if not self.show_template_model:
             return
         self.visualizer.draw_3d_points(face.model3d,
                                        color=(255, 0, 525),
                                        size=1)
+
 
     def _display_normalized_image(self, face: Face) -> None:
         if not self.config.demo.display_on_screen:
@@ -320,6 +348,7 @@ class Demo:
         if self.config.demo.use_camera:
             normalized = normalized[:, ::-1]
         cv2.imshow('normalized', normalized)
+
 
     def _draw_gaze_vector(self, face: Face) -> None:
         length = self.config.demo.gaze_visualization_length
